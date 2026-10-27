@@ -1,0 +1,38 @@
+{
+  "name": "campus-lost-found",
+  "version": "2.0.0",
+  "description": "Campus Lost and Found: a school lost-property website plus the Prestige Lost & Found partner API",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "db:setup": "node db/setup.js",
+    "test": "jest --runInBand",
+    "docs": "node -e \"require('fs').copyFileSync('openapi.yaml','docs/openapi.yaml'); console.log('docs/openapi.yaml updated')\"",
+    "partner-stub": "node tools/partner-stub.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mysql2": "^3.9.7"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/__tests__/setup/env.js"
+    ],
+    "globalSetup": "<rootDir>/__tests__/setup/global.js",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/__tests__/setup/",
+      "/__tests__/helpers.js"
+    ]
+  }
+}

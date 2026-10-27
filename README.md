@@ -1,170 +1,328 @@
-# Artist API Server
+# Campus Lost and Found
 
-## Overview
+Campus Lost and Found helps students get back things they lost at school. A student who finds something reports it with a photo; it appears as a tag in their school's portal. The owner searches the portal, claims the item with evidence, and the finder picks the rightful owner.
 
-The Artist API is a JSON REST API for an artist-booking platform. It lets the platform's frontend and other clients browse artists, songs, artist and venue profiles, and bookings, as well as create and manage users and those records. The API uses Express and MySQL.
+This repository contains two things:
+
+1. **The website**, for students: register, log in, browse and search found items, report items, claim them with evidence, review claims and select the owner, notifications, profile, and dark mode.
+2. **The Prestige Lost & Found API**, for partner teams: claims, fees, refunds and school statistics, protected by an API key. This is the API described in [`openapi.yaml`](./openapi.yaml).
+
+**Team:** Prestige (Shannel Wanjiru, Raika Kanyiha, GuyTresor Gacheru, Tony Kibe)
+**Integration contact:** Prestige team, via WhatsApp
+
+---
+
+## Quickstart for partner teams
+
+You need the API key we sent you privately. Then:
+
+```
+curl -i -H "X-API-Key: YOUR_KEY" "http://10.53.50.111:3000/claims?status=claimed"
+```
+
+Expected: `200 OK` and
+
+```json
+[
+  {
+    "claimId": "c1",
+    "studentId": "s1",
+    "itemId": "i1",
+    "status": "claimed",
+    "rewardAmountCents": 1500,
+    "submittedAt": "2026-07-01T09:15:00Z"
+  }
+]
+```
+
+Can't connect? First check the server is up (no key needed):
+
+```
+curl -i http://10.53.50.111:3000/health
+```
+
+`200 {"status":"ok"}` means you can reach us. If it hangs, you're not on the same network as our laptop, or a firewall is blocking it. Our laptop's address can change; message us if it stops working.
+
+On Windows PowerShell, type `curl.exe` instead of `curl`.
+
+---
+
+## Base URL
+
+```
+http://10.53.50.111:3000
+```
+
+Browsable documentation for every endpoint is at **http://10.53.50.111:3000/docs** (rendered from `openapi.yaml` with Swagger UI).
 
 ## Authentication
 
-The API currently has no token, session, or authorization middleware. All routes, including write and delete routes, are publicly reachable. No `Authorization` header is required. Requests with a body should set `Content-Type: application/json`.
+Every endpoint except `/health` needs an API key in this header:
 
-To check credentials, send a JSON `POST` to `/api/users/login` with `email` and `password` fields. A successful login returns the user's `id`, `name`, `email`, and `role`; it does not issue a token, so it does not authenticate subsequent requests. The current implementation compares submitted passwords directly with database values. Do not use real passwords until password hashing and access control are implemented.
-
-## Endpoint examples
-
-The deployed API base URL is `https://artist-api-server.onrender.com`. All paths below use the `/api` prefix. Successful `GET` requests return JSON. Successful `POST` requests generally return `201 Created`; successful `PUT` requests return JSON with `200 OK`; successful `DELETE` requests return an empty `204 No Content` response.
-
-| Resource | Routes |
-| --- | --- |
-| Health | `GET /api/health` |
-| Artists | `GET, POST /api/artists`; `GET, PUT, DELETE /api/artists/:id` |
-| Songs | `GET, POST /api/songs`; `GET, PUT, DELETE /api/songs/:id` |
-| Users | `POST /api/users` (register); `POST /api/users/login`; `GET /api/users`; `GET, PUT, DELETE /api/users/:id` |
-| Artist profiles | `GET /api/profiles/artists`; `GET, PUT, DELETE /api/profiles/artists/:userId` |
-| Bookings | `GET, POST /api/bookings`; `GET, PUT, DELETE /api/bookings/:id` |
-| Venue profiles | `GET, POST /api/venues`; `GET, PUT, DELETE /api/venues/:id` |
-
-The server also mounts artist routes at `/artists` and user routes at `/users` without the `/api` prefix. Use the `/api` paths for new clients.
-
-### Most important endpoint command
-
-List artists from the deployed API:
-
-```sh
-curl https://artist-api-server.onrender.com/api/artists
+```
+X-API-Key: <your-key>
 ```
 
-This exact command was run against the deployed API. It returned HTTP `200` and this JSON:
+- We issue one key per partner team, privately. Ask our integration contact if you don't have one.
+- Keep the key in your `.env` and call us **from your server**, not from browser JavaScript, where anyone could read it.
+- Missing header: `401 {"error":"missing X-API-Key header"}`
+- Wrong key: `401 {"error":"invalid API key"}`
 
-```json
-[{"id":4,"name":"Ben","genre":"Afrobeats","bio":"hi"},{"id":2,"name":"Night Echo","genre":"Indie","bio":"Alternative musician"},{"id":1,"name":"Ariana Blue","genre":"Pop","bio":"Singer-songwriter"}]
+## Rate limit
+
+**60 requests per minute per key.** Over the limit you get `429` with a `Retry-After` header giving the seconds to wait. If you hit this, you're probably calling us on every page load or refresh; keep the last result for a short while instead.
+
+## Calling us from a browser (CORS)
+
+We recommend calling us from your server. If you must call from a browser, send us your exact origin (for example `http://localhost:5173`, including the port). We add it to `CORS_ORIGINS`, and browser preflight requests are then answered before the key check.
+
+## Conventions
+
+- **IDs** are strings with a type prefix: `sch1` (school), `s1` (student), `i1` (item), `c1` (claim), `r1` (refund).
+- **Money** is an integer number of cents: `1500` means 15.00.
+- **Timestamps** are ISO 8601 in UTC: `2026-07-01T09:15:00Z`.
+- **Claim status** is one of `pending` (waiting for the finder), `claimed` (approved; the item went back to this student), or `rejected`.
+
+---
+
+## Endpoints
+
+| Method | Path | What it does | Success |
+|---|---|---|---|
+| GET | `/health` | Check the server is up (no key) | 200 |
+| GET | `/claims?status={status}` | List claims with a status | 200 |
+| POST | `/claims` | Submit a claim on an item | 201 |
+| PATCH | `/claims/{claimId}` | Set a claim's status | 200 |
+| DELETE | `/claims/{claimId}` | Withdraw a claim | 204 |
+| GET | `/students/{studentId}/claims` | A student's claims | 200 |
+| GET | `/schools/{schoolId}/item-statistics` | A school's lost-item totals | 200 |
+| GET | `/claims/{claimId}/fees` | The fee on an approved claim | 200 |
+| GET | `/claims/{claimId}/refunds` | Refunds on a claim | 200 |
+| POST | `/claims/{claimId}/refunds` | Refund part of a claim's fee | 201 |
+
+Every example below is a real response from the server running with its sample data.
+
+### List claims by status
+
+```
+curl -i -H "X-API-Key: YOUR_KEY" "http://10.53.50.111:3000/claims?status=pending"
 ```
 
-### Other endpoint examples
-
-These requests and response bodies were captured from the deployed API connected to Railway. Collection contents can change as records are added or updated.
-
-Health and database connectivity:
-
-```sh
-curl https://artist-api-server.onrender.com/api/health
-```
-
-```json
-{"api":"ok","database":"connected"}
-```
-
-List songs:
-
-```sh
-curl https://artist-api-server.onrender.com/api/songs
-```
-
-```json
-[
-  {"id":3,"artistId":10,"title":"dream","genre":"jazz","description":"sasakopsak","audioUrl":"ekwmemw","coverImage":"ewewew","uploadDate":"2026-09-08T00:00:00.000Z","createdAt":"2026-09-08T23:03:47.000Z"},
-  {"id":1,"artistId":1,"title":"City Lights","genre":"Afrobeats","description":"A vibrant city anthem with a warm melodic hook.","audioUrl":"https://example.com/audio/city-lights.mp3","coverImage":"https://example.com/images/city-lights.jpg","uploadDate":"2026-09-01T00:00:00.000Z","createdAt":"2026-09-08T17:28:13.000Z"},
-  {"id":2,"artistId":1,"title":"Midnight Drive","genre":"R&B","description":"Smooth late-night groove for intimate settings.","audioUrl":"https://example.com/audio/midnight-drive.mp3","coverImage":"https://example.com/images/midnight-drive.jpg","uploadDate":"2026-09-04T00:00:00.000Z","createdAt":"2026-09-08T17:28:13.000Z"}
-]
-```
-
-List artist profiles:
-
-```sh
-curl https://artist-api-server.onrender.com/api/profiles/artists
-```
+`200`:
 
 ```json
 [
-  {"id":2,"userId":10,"stageName":"Moses","genre":"jazz","bio":"eijdjeij","location":"Kena","performanceFee":"200.00","profileImage":"iojeiw","instagram":"werwer","youtube":"ewfwe","spotify":"rewrew","socialLinks":{"instagram":"werwer","youtube":"ewfwe","spotify":"rewrew"}},
-  {"id":1,"userId":1,"stageName":"John Artist","genre":"Afrobeats","bio":"Upcoming artist from Nairobi.","location":"Nairobi","performanceFee":"500.00","profileImage":"","instagram":"","youtube":"","spotify":"","socialLinks":{"instagram":"","youtube":"","spotify":""}}
+  { "claimId": "c2", "studentId": "s1", "itemId": "i2", "status": "pending", "rewardAmountCents": 0, "submittedAt": "2026-07-03T10:00:00Z" },
+  { "claimId": "c3", "studentId": "s2", "itemId": "i2", "status": "pending", "rewardAmountCents": 0, "submittedAt": "2026-07-03T11:30:00Z" }
 ]
 ```
 
-List bookings:
+No claims with that status gives `200 []`. A missing or unknown status gives `400 {"error":"status must be one of: pending, claimed, rejected"}`.
 
-```sh
-curl https://artist-api-server.onrender.com/api/bookings
+### Submit a claim
+
 ```
+curl -i -X POST http://10.53.50.111:3000/claims \
+  -H "X-API-Key: YOUR_KEY" -H "Content-Type: application/json" \
+  -d '{"studentId":"s1","itemId":"i3"}'
+```
+
+`201` (your `claimId` and `submittedAt` will differ; `submittedAt` is the time you sent it):
 
 ```json
-[{"id":1,"artistId":1,"venueId":3,"eventDate":"2026-09-15T00:00:00.000Z","offeredFee":"1200.00","status":"Pending","notes":"Scheduled for a live showcase night.","createdAt":"2026-09-08T17:28:13.000Z"}]
+{ "claimId": "c4", "studentId": "s1", "itemId": "i3", "status": "pending", "rewardAmountCents": 0, "submittedAt": "2026-10-21T08:30:00Z" }
 ```
 
-List venue profiles:
+| Body field | Type | Required |
+|---|---|---|
+| `studentId` | string | yes |
+| `itemId` | string | yes |
+| `description` | string | no: why the item is theirs |
 
-```sh
-curl https://artist-api-server.onrender.com/api/venues
+Errors: `400` missing or wrong-type field; `404` student or item not found (or in a different school); `409` the item was already returned, the student found it themselves, or they already have an active claim on it.
+
+### Set a claim's status
+
 ```
+curl -i -X PATCH http://10.53.50.111:3000/claims/c2 \
+  -H "X-API-Key: YOUR_KEY" -H "Content-Type: application/json" \
+  -d '{"status":"claimed"}'
+```
+
+`200`:
 
 ```json
-[{"id":1,"userId":3,"venueName":"Royal Arena","location":"Nairobi","capacity":1200,"supportedGenres":"Afrobeats,R&B,Pop","description":"Large venue for concerts and live performances.","createdAt":"2026-09-08T17:28:13.000Z","updatedAt":"2026-09-08T17:28:13.000Z"}]
+{ "claimId": "c2", "studentId": "s1", "itemId": "i2", "status": "claimed", "rewardAmountCents": 1500, "submittedAt": "2026-07-03T10:00:00Z" }
 ```
 
-Register a user with `POST /api/users` using JSON fields `name`, `email`, `password`, and `role`. A successful response has status `201` and returns `id`, `name`, `email`, and `role` (not the password). To create an artist, song, booking, or venue profile, send a JSON object with the fields used by that resource; the route table above shows the collection and item paths.
+Setting `claimed` selects this student as the owner: the school's reward and handling fee are recorded and every other pending claim on the item becomes `rejected`. Sending the same status twice changes nothing. Errors: `400` invalid status, `404` no such claim, `409` another claim on the item is already approved.
 
-## Error format
+### Withdraw a claim
 
-Handled API errors use a JSON object with an `error` string. The HTTP status indicates the failure type. For example, requesting a missing artist:
-
-```sh
-curl -i https://artist-api-server.onrender.com/api/artists/999999
+```
+curl -i -X DELETE -H "X-API-Key: YOUR_KEY" http://10.53.50.111:3000/claims/c2
 ```
 
-```http
-HTTP/2 404
-Content-Type: application/json; charset=utf-8
+`204` with no body. `404 {"error":"claim not found"}` if it doesn't exist.
 
-{"error":"Artist not found."}
+### A student's claims
+
+```
+curl -i -H "X-API-Key: YOUR_KEY" http://10.53.50.111:3000/students/s1/claims
 ```
 
-Invalid login credentials return `401 Unauthorized`:
+`200`:
 
-```sh
-curl -i -X POST https://artist-api-server.onrender.com/api/users/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"not-a-user@example.invalid","password":"invalid"}'
+```json
+[
+  { "claimId": "c1", "itemId": "i1", "status": "claimed", "submittedAt": "2026-07-01T09:15:00Z" },
+  { "claimId": "c2", "itemId": "i2", "status": "pending", "submittedAt": "2026-07-03T10:00:00Z" }
+]
 ```
 
-```http
-HTTP/2 401
-Content-Type: application/json; charset=utf-8
+A real student with no claims gives `200 []`. An unknown student gives `404 {"error":"student not found"}`.
 
-{"error":"Invalid email or password."}
+### School statistics
+
+```
+curl -i -H "X-API-Key: YOUR_KEY" http://10.53.50.111:3000/schools/sch1/item-statistics
 ```
 
-Other handled failures include `404` for missing records, `409` when registering an already-used email, and `500` with a resource-specific error when a database operation fails. Unknown paths use Express's default 404 response, which is not the API's JSON error format.
+`200`:
 
-## Local setup
-
-Prerequisites: Node.js with npm, and a reachable MySQL server. The database must contain the tables expected by the routes: `artists`, `songs`, `users`, `artist_profiles`, `bookings`, and `venue_profiles`. The `schema.sql` file creates these tables without inserting sample data.
-
-From the cloned server repository root:
-
-```sh
-npm ci
-cp .env.example .env
+```json
+{ "schoolId": "sch1", "schoolName": "Lakeside High School", "totalItemsReported": 4, "totalItemsClaimed": 1, "totalRewardAmountPaidCents": 1500 }
 ```
 
-Edit `.env` and set `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` to a reachable MySQL database. `PORT` defaults to `5001` in `.env.example`; `FRONTEND_ORIGIN` controls the single allowed CORS origin and defaults there to `http://localhost:5173`. These example commands create a local database and import the schema; change the host, user, or database name to match `.env` if needed:
+`404 {"error":"school not found"}` for an unknown school.
 
-```sh
-mysql --host=127.0.0.1 --port=3306 --user=root --password -e 'CREATE DATABASE IF NOT EXISTS artist_platform CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;'
-mysql --host=127.0.0.1 --port=3306 --user=root --password artist_platform < schema.sql
+### Fee on a claim
+
+```
+curl -i -H "X-API-Key: YOUR_KEY" http://10.53.50.111:3000/claims/c1/fees
 ```
 
-Then start the API:
+`200`:
 
-```sh
+```json
+{ "claimId": "c1", "studentId": "s1", "itemId": "i1", "amountPayableCents": 500 }
+```
+
+A fee exists only once a claim is approved. `GET /claims/c2/fees` gives `404 {"error":"no fee has been charged on this claim yet"}`; an unknown claim gives `404 {"error":"claim not found"}`.
+
+### Refunds on a claim
+
+```
+curl -i -H "X-API-Key: YOUR_KEY" http://10.53.50.111:3000/claims/c1/refunds
+```
+
+`200`:
+
+```json
+[
+  { "refundId": "r1", "claimId": "c1", "studentId": "s1", "amountCents": 250, "reason": "Item returned in damaged condition; partial refund issued.", "refundedAt": "2026-08-20T16:30:00Z" }
+]
+```
+
+### Issue a refund
+
+```
+curl -i -X POST http://10.53.50.111:3000/claims/c1/refunds \
+  -H "X-API-Key: YOUR_KEY" -H "Content-Type: application/json" \
+  -d '{"studentId":"s1","amountCents":100,"reason":"Collected late because the office was closed."}'
+```
+
+`201` with the new refund (same shape as above). Errors: `400` missing or invalid field, or `studentId` is not the claim's student; `404` no such claim; `409` the claim has no fee, or the total refunded would exceed it (`{"error":"refund exceeds the remaining refundable fee of 150 cents"}`).
+
+---
+
+## Errors
+
+Every error has the same shape:
+
+```json
+{ "error": "claim not found" }
+```
+
+| Status | Meaning |
+|---|---|
+| 400 | A field is missing, has the wrong type, or the body isn't valid JSON |
+| 401 | Missing or wrong `X-API-Key` |
+| 404 | No claim, student, item or school with that ID, or no such path |
+| 409 | The request conflicts with the current state (see each endpoint) |
+| 429 | Rate limit exceeded; wait `Retry-After` seconds |
+| 500 | Our bug. Tell us the time and the request you sent |
+
+## Sample data
+
+The server starts with this data (reset it any time with `npm run db:setup`):
+
+| | |
+|---|---|
+| Schools | `sch1` Lakeside High School, `sch2` Riverside Academy |
+| Students | `s1`, `s2`, `s3` at sch1; `s4` at sch2 |
+| Items | `i1` (returned), `i2`, `i3`, `i4` at sch1; `i5` at sch2 |
+| Claims | `c1` claimed, `c2` and `c3` pending (both on `i2`) |
+| Fee / refund | 500 on `c1`; refund `r1` of 250 on `c1` |
+
+Website logins (password `password123` for all): `amani@lakeside.test`, `wanjiku@lakeside.test`, `brian@lakeside.test`, `faith@riverside.test`.
+
+---
+
+## Running it locally
+
+You need **Node.js 18 or newer** and **MySQL** running.
+
+```
+git clone <this repo's URL>
+cd <repo folder>
+npm install
+cp .env.example .env          # Windows: copy .env.example .env
+```
+
+Open `.env` and set at least:
+
+- `DB_PASSWORD`: your MySQL password (leave empty if root has none)
+- `API_KEYS`: the key(s) you give partners. Generate one with
+  `node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`
+
+Then:
+
+```
+npm run db:setup     # creates the database and tables, loads sample data (erases existing data)
 npm start
 ```
 
-In another terminal, verify the connection:
+The server prints the website address, the docs address, and the address partners on your network should use. Open **http://localhost:3000** for the website.
 
-```sh
-curl http://localhost:5001/api/health
+`./run.sh` does install, setup and start in one go (Mac/Linux/Git Bash).
+
+### Tests
+
+```
+npm test
 ```
 
-The expected response with a working database is `{"api":"ok","database":"connected"}`. Import `schema.sql` into the configured database before expecting data routes to work. It creates the six tables but does not add any records. The server may still start without a reachable database, but data operations will return `500` and health will report `503`.
+The tests use a separate database (`<DB_NAME>_test`), so they never touch your real data. They cover every endpoint: success, validation errors, not-found cases, edge cases, security, and the website flows.
 
-For local development with automatic restarts, run `npm run dev` instead of `npm start`.
+### Using our upstream partner's API
+
+Set `PARTNER_URL`, `PARTNER_API_KEY`, and the header, path and field names from their README in `.env`. The Browse page shows their data in a side panel. If their server isn't ready, run `npm run partner-stub` and point `PARTNER_URL` at `http://localhost:4000` with key `stub-key`.
+
+### Project layout
+
+```
+app.js, server.js        the Express app, and the file that starts it
+src/routes/partnerApi.js the partner API (openapi.yaml)
+src/routes/web.js        the website's own JSON API
+src/routes/upstream.js   calls our upstream partner (Week 10)
+src/services/claims.js   claim rules shared by the website and the API
+src/middleware/          API keys, rate limit, CORS, login sessions
+src/mappers.js           database rows -> contract shapes
+db/                      MySQL schema, sample data, setup script
+public/                  the website (HTML, CSS, JS)
+docs/                    Swagger UI docs page
+__tests__/               Jest + Supertest tests
+```
+
+Weekly lab deliverables are in the `.md` files at the root; [`SUBMISSION_GUIDE.md`](./SUBMISSION_GUIDE.md) maps each week to its files.
